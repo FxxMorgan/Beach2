@@ -22,9 +22,8 @@ $rol_id = $_SESSION['rol_id'];
 
 // Obtener permisos del usuario
 function obtenerPermisos($conn, $usuario_id, $rol_id) {
-    if ($rol_id == 2) {
-        // Si el rol es 2, tiene acceso a todo
-        return ['dashboard', 'ventas', 'usuarios', 'gastos', 'sucursales'];
+    if ($rol_id == 4) {
+        return ['dashboard', 'ventas', 'gastos'];
     }
 
     $sql = "SELECT permiso FROM permisos WHERE usuario_id = ? AND estado = 1";
@@ -47,23 +46,6 @@ if (!in_array('dashboard', $permisos_usuario)) {
     exit();
 }
 
-
-// Determinar el enlace del dashboard según el rol
-$dashboard_link = 'dashboard.php'; // Valor por defecto
-switch ($rol_id) {
-    case 1:
-        $dashboard_link = 'dashboard_owner.php';
-        break;
-    case 2:
-        $dashboard_link = 'dashboard_ti.php';
-        break;
-    case 3:
-        $dashboard_link = 'dashboard_jefe.php';
-        break;
-    case 4:
-        $dashboard_link = 'dashboard_encargado.php';
-        break;
-}
 // Obtener datos de ventas mensuales
 $ventas_mensuales = [];
 $sql_ventas = "SELECT MONTH(fecha) AS mes, SUM(monto) AS total FROM ventas WHERE sucursal_id = ? GROUP BY mes";
@@ -114,7 +96,7 @@ $stmt_informes->close();
     <title>Dashboard</title>
 
     <!-- Favicon -->
-    <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
+    <link rel="icon" href="images/favicon.ico" type="image/x-icon">
 
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -180,20 +162,6 @@ $stmt_informes->close();
                         <a id="ventas-link" href="ventas.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
                             <span class="material-icons mr-2">shopping_cart</span>
                             Ventas
-                        </a>
-                    </li>
-                    <?php endif; ?>
-                    <li class="mb-4">
-                        <a id="sucursales-link" href="sucursales.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
-                            <span class="material-icons mr-2">store</span>
-                            Sucursales
-                        </a>
-                    </li>
-                    <?php if (in_array('usuarios', $permisos_usuario)): ?>
-                    <li class="mb-4">
-                        <a id="usuarios-link" href="usuarios.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
-                            <span class="material-icons mr-2">people</span>
-                            Usuarios
                         </a>
                     </li>
                     <?php endif; ?>

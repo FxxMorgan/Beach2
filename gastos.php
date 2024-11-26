@@ -1,98 +1,230 @@
 <?php
 session_start();
 
-// Redirigir si el usuario no ha iniciado sesión
+// Verificar sesión
 if (!isset($_SESSION['usuario_id']) || !isset($_SESSION['sucursal_id']) || !isset($_SESSION['rol_id'])) {
     header('Location: login.php');
     exit();
 }
 
-// Conexión a la base de datos
-$conn = new mysqli('localhost', 'root', '', 'beach2');
-
-// Verificar la conexión
-if ($conn->connect_error) {
-    die("Conexión fallida: " . $conn->connect_error);
-}
-
-// Obtener los datos de la sesión
-$usuario_id = $_SESSION['usuario_id'];
-$sucursal_id = $_SESSION['sucursal_id'];
-$rol_id = $_SESSION['rol_id'];
-
-// Obtener permisos del usuario
-function obtenerPermisos($conn, $usuario_id, $rol_id) {
-    if ($rol_id == 2) {
-        // Si el rol es 2, tiene acceso a todo
-        return ['dashboard', 'ventas', 'usuarios', 'gastos', 'sucursales'];
+try {
+    $conn = new mysqli('localhost', 'root', '', 'beach2');
+    if ($conn->connect_error) {
+        throw new Exception("Conexión fallida: " . $conn->connect_error);
     }
 
-    $sql = "SELECT permiso FROM permisos WHERE usuario_id = ? AND estado = 1";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $usuario_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $permisos = [];
-    while ($row = $result->fetch_assoc()) {
-        $permisos[] = $row['permiso'];
+    date_default_timezone_set('America/Santiago');
+    $usuario_id = $_SESSION['usuario_id'];
+    $sucursal_id = $_SESSION['sucursal_id'];
+    $rol_id = $_SESSION['rol_id'];
+
+    // Procesar el formulario de registro de gastos
+    if ($_SERVER["REQUEST_METHOD"] == "POST") {
+        if (isset($_POST['accion']) && $_POST['accion'] === 'eliminar') {
+            $gasto_id = $_POST['gasto_id'];
+            $sql = "DELETE FROM gastos WHERE id = ? AND sucursal_id = ?";
+            $stmt = $conn->prepare($sql);
+            if ($stmt) {
+                $stmt->bind_param("ii", $gasto_id, $sucursal_id);
+                if ($stmt->execute()) {
+                    echo "<script>alert('Gasto eliminado con éxito');</script>";
+                } else {
+                    echo "<script>alert('Error al eliminar el gasto: " . $stmt->error . "');</script>";
+                }
+                $stmt->close();
+            } else {
+                echo "<script>alert('Error en la preparación de la consulta: " . $conn->error . "');</script>";
+            }
+        } elseif ($_SERVER["REQUEST_METHOD"] == "POST") {
+            if (isset($_POST['accion']) && $_POST['accion'] === 'editar') {
+                $gasto_id = $_POST['gasto_id'];
+                $monto = $_POST['monto'];
+                $descripcion = $_POST['tipo'];
+                $gasto_tipo = $_POST['gasto_tipo'];
+        
+                // Si es un gasto fijo, usamos el valor seleccionado como descripción
+                if ($gasto_tipo === 'fijo') {
+                    $descripcion = $_POST['gastos-fijos'];
+                }
+        
+                // Preparar la consulta SQL
+                $sql = "UPDATE gastos SET monto = ?, descripcion = ?, gasto_tipo = ? WHERE id = ? AND sucursal_id = ?";
+                $stmt = $conn->prepare($sql);
+                if ($stmt) {
+                    $stmt->bind_param("dssii", $monto, $descripcion, $gasto_tipo, $gasto_id, $sucursal_id);
+                    if ($stmt->execute()) {
+                        echo "<script>alert('Gasto actualizado con éxito');</script>";
+                    } else {
+                        echo "<script>alert('Error al actualizar el gasto: " . $stmt->error . "');</script>";
+                    }
+                    $stmt->close();
+                } else {
+                    echo "<script>alert('Error en la preparación de la consulta: " . $conn->error . "');</script>";
+                }
+            }
+        } else {
+            $monto = $_POST['monto'];
+            $descripcion = $_POST['tipo']; // Usamos 'tipo' como descripción
+            $sucursal_id = $_SESSION['sucursal_id'];
+            $gasto_tipo = $_POST['gasto_tipo'];
+            $fecha = date('Y-m-d H:i:s');
+
+            // Si es un gasto fijo, usamos el valor seleccionado como descripción
+            if ($gasto_tipo === 'fijo') {
+                $descripcion = $_POST['gastos-fijos'];
+            }
+
+            // Preparar la consulta SQL
+            $sql = "INSERT INTO gastos (monto, descripcion, sucursal_id, gasto_tipo, fecha) VALUES (?, ?, ?, ?, ?)";
+            $stmt = $conn->prepare($sql);
+
+            if ($stmt) {
+                $stmt->bind_param("dsiss", $monto, $descripcion, $sucursal_id, $gasto_tipo, $fecha);
+                if ($stmt->execute()) {
+                    // Éxito
+                    echo "<script>alert('Gasto registrado con éxito');</script>";
+                } else {
+                    // Error
+                    echo "<script>alert('Error al registrar el gasto: " . $stmt->error . "');</script>";
+                }
+                $stmt->close();
+            } else {
+                echo "<script>alert('Error en la preparación de la consulta: " . $conn->error . "');</script>";
+            }
+        }
     }
-    return $permisos;
+
+    // Obtener nombre de la sucursal
+    $sql_sucursal = "SELECT nombre FROM sucursales WHERE id = ?";
+    $stmt_sucursal = $conn->prepare($sql_sucursal);
+    if (!$stmt_sucursal) {
+        throw new Exception("Error en la preparación de la consulta de sucursal: " . $conn->error);
+    }
+    $stmt_sucursal->bind_param("i", $sucursal_id);
+    $stmt_sucursal->execute();
+    $result_sucursal = $stmt_sucursal->get_result();
+    $sucursal_nombre = $result_sucursal->fetch_assoc()['nombre'] ?? 'Desconocida';
+    $stmt_sucursal->close();
+
+    // Configuración de filtros
+    $time_range = in_array($_GET['time_range'] ?? '', ['day', 'month', 'year', 'custom']) ? $_GET['time_range'] : 'day';
+    $gasto_tipo_filtro = in_array($_GET['gasto_tipo_filtro'] ?? '', ['todos', 'fijo', 'variable']) ? $_GET['gasto_tipo_filtro'] : 'todos';
+    $start_date = $_GET['start_date'] ?? date('Y-m-d');
+    $end_date = $_GET['end_date'] ?? date('Y-m-d');
+
+   // Configuración de $where_clause y $date_format
+$where_clause = " WHERE sucursal_id = ?";
+$date_format = '%Y-%m-%d'; // Default to daily
+
+if ($time_range === 'custom') {
+    $where_clause .= " AND fecha BETWEEN ? AND ?";
+} elseif ($time_range === 'month') {
+    $date_format = '%Y-%m'; // Monthly
+} elseif ($time_range === 'year') {
+    $date_format = '%Y'; // Yearly
 }
 
-$permisos_usuario = obtenerPermisos($conn, $usuario_id, $rol_id);
+$sql_grafico = "SELECT DATE_FORMAT(fecha, ?) as periodo, SUM(monto) as total, COUNT(*) as cantidad
+                FROM gastos" . $where_clause;
 
-// Verificar si el usuario tiene permiso para acceder a Gastos
-if (!in_array('gastos', $permisos_usuario)) {
-    echo "No tienes permiso para acceder a esta página.";
-    exit();
+if ($gasto_tipo_filtro !== 'todos') {
+    $sql_grafico .= " AND gasto_tipo = ?";
 }
 
-// Variables para los filtros
-$time_range = $_GET['time_range'] ?? 'month';
-$start_date = $_GET['start_date'] ?? '';
-$end_date = $_GET['end_date'] ?? '';
+$sql_grafico .= " GROUP BY periodo ORDER BY MIN(fecha)";
 
-// Construir la consulta SQL según el filtro de tiempo
-$where_clause = "WHERE sucursal_id = ?";
-if ($time_range == 'day') {
-    $where_clause .= " AND DATE(fecha) = CURDATE()";
-} elseif ($time_range == 'month') {
-    $where_clause .= " AND MONTH(fecha) = MONTH(CURDATE()) AND YEAR(fecha) = YEAR(CURDATE())";
-} elseif ($time_range == 'year') {
-    $where_clause .= " AND YEAR(fecha) = YEAR(CURDATE())";
-} elseif ($time_range == 'custom' && $start_date && $end_date) {
-    $where_clause .= " AND DATE(fecha) BETWEEN '$start_date' AND '$end_date'";
+$stmt_grafico = $conn->prepare($sql_grafico);
+if (!$stmt_grafico) {
+    throw new Exception("Error en la preparación de la consulta del gráfico: " . $conn->error);
 }
 
-// Obtener datos de gastos para el DataTable y el gráfico
-$sql = "SELECT id, monto, descripcion, fecha FROM gastos $where_clause";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $sucursal_id);
-$stmt->execute();
-$result = $stmt->get_result();
-
-$gastos = [];
-while ($row = $result->fetch_assoc()) {
-    $gastos[] = $row;
+// Bind de parámetros para gráfico
+if ($time_range === 'custom') {
+    if ($gasto_tipo_filtro !== 'todos') {
+        $stmt_grafico->bind_param('sisss', $date_format, $sucursal_id, $start_date, $end_date, $gasto_tipo_filtro);
+    } else {
+        $stmt_grafico->bind_param('siss', $date_format, $sucursal_id, $start_date, $end_date);
+    }
+} else {
+    if ($gasto_tipo_filtro !== 'todos') {
+        $stmt_grafico->bind_param('sis', $date_format, $sucursal_id, $gasto_tipo_filtro);
+    } else {
+        $stmt_grafico->bind_param('si', $date_format, $sucursal_id);
+    }
 }
 
-$gastos_labels = array_column($gastos, 'fecha');
-$gastos_data = array_column($gastos, 'monto');
+// Ejecutar consulta del gráfico
+if (!$stmt_grafico->execute()) {
+    throw new Exception("Error al ejecutar la consulta del gráfico: " . $stmt_grafico->error);
+}
+$result_grafico = $stmt_grafico->get_result();
+$gastos_labels = [];
+$gastos_data = [];
+$gastos_cantidad = [];
 
-// Obtener nombre de la sucursal
-$sucursal_nombre = "Sucursal"; // Esto debería obtenerse de la base de datos
-
-if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['ajax'])) {
-    // Lógica para devolver los datos filtrados en formato JSON
-    echo json_encode([
-        'labels' => $gastos_labels,
-        'data' => $gastos_data
-    ]);
-    exit();
+while ($row = $result_grafico->fetch_assoc()) {
+    $gastos_labels[] = $row['periodo'];
+    $gastos_data[] = $row['total'];
+    $gastos_cantidad[] = $row['cantidad'];
 }
 
-// Cerrar conexión
-$conn->close();
+    // Consulta para la tabla de gastos
+    $sql_tabla = "SELECT id, gasto_tipo, descripcion, monto, fecha FROM gastos" . $where_clause;
+    if ($gasto_tipo_filtro !== 'todos') {
+        $sql_tabla .= " AND gasto_tipo = ?";
+    }
+    $sql_tabla .= " ORDER BY fecha DESC";
+
+    $stmt_tabla = $conn->prepare($sql_tabla);
+    if (!$stmt_tabla) {
+        throw new Exception("Error en la preparación de la consulta de la tabla: " . $conn->error);
+    }
+
+    // Bind de parámetros para la tabla
+    if ($time_range === 'custom') {
+        if ($gasto_tipo_filtro !== 'todos') {
+            $stmt_tabla->bind_param('isss', $sucursal_id, $start_date, $end_date, $gasto_tipo_filtro);
+        } else {
+            $stmt_tabla->bind_param('iss', $sucursal_id, $start_date, $end_date);
+        }
+    } else {
+        if ($gasto_tipo_filtro !== 'todos') {
+            $stmt_tabla->bind_param('is', $sucursal_id, $gasto_tipo_filtro);
+        } else {
+            $stmt_tabla->bind_param('i', $sucursal_id);
+        }
+    }
+
+    // Ejecutar consulta de la tabla
+    if (!$stmt_tabla->execute()) {
+        throw new Exception("Error al ejecutar la consulta de la tabla: " . $stmt_tabla->error);
+    }
+    $result_tabla = $stmt_tabla->get_result();
+    $gastos = $result_tabla->fetch_all(MYSQLI_ASSOC);
+
+    // Determinar el enlace del dashboard según el rol
+    $dashboard_link = 'dashboard.php';
+    switch ($rol_id) {
+        case 1:
+            $dashboard_link = 'dashboard_owner.php';
+            break;
+        case 2:
+            $dashboard_link = 'dashboard_ti.php';
+            break;
+        case 3:
+            $dashboard_link = 'dashboard_jefe.php';
+            break;
+        case 4:
+            $dashboard_link = 'dashboard_encargado.php';
+            break;
+    }
+} catch (Exception $e) {
+    // Podrías registrar el error en un archivo log
+    error_log($e->getMessage());
+    echo "Error: " . $e->getMessage(); // Para pruebas, evita mostrar esto en producción
+} finally {
+    $conn->close();
+}
 ?>
 
 <!DOCTYPE html>
@@ -101,6 +233,8 @@ $conn->close();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ver Gastos</title>
+        <!-- Favicon -->
+    <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.11.5/css/jquery.dataTables.min.css">
@@ -111,7 +245,6 @@ $conn->close();
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/responsive/2.2.9/js/dataTables.responsive.min.js"></script>
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
     <style>
         body {
@@ -148,230 +281,416 @@ $conn->close();
             <nav>
                 <ul>
                     <li class="mb-4">
-                        <a id="dashboard-link" href="index.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
+                        <a href="<?php echo $dashboard_link; ?>" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
                             <span class="material-icons mr-2">dashboard</span>
                             Dashboard
                         </a>
                     </li>
                     <li class="mb-4">
-                        <a id="gastos-link" href="gastos.php" class="flex items-center text-white bg-blue-600 p-2 rounded">
-                            <span class="material-icons mr-2">monetization_on</span>
-                            Gastos
-                        </a>
-                    </li>
-                    <li class="mb-4">
-                        <a id="ventas-link" href="ventas.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
+                        <a href="ventas.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
                             <span class="material-icons mr-2">shopping_cart</span>
                             Ventas
                         </a>
                     </li>
                     <li class="mb-4">
-                        <a id="sucursales-link" href="sucursales.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
+                        <a href="#" class="flex items-center text-white bg-blue-600 p-2 rounded dropdown-toggle">
+                            <span class="material-icons mr-2">monetization_on</span>
+                            Gastos
+                            <span class="material-icons ml-auto">arrow_drop_down</span>
+                        </a>
+                        <!-- Submenú -->
+                        <?php if ($rol_id != 4): ?>
+                        <ul class="ml-4 mt-2 hidden dropdown-menu">
+                            <li class="mb-2">
+                                <a href="sueldos.php" class="flex items-center text-white hover:bg-blue-500 p-2 rounded">
+                                    <span class="material-icons mr-2">attach_money</span>
+                                    Sueldos
+                                </a>
+                            </li>
+                            <li class="mb-2">
+                                <a href="trabajadores.php" class="flex items-center text-white hover:bg-blue-500 p-2 rounded">
+                                    <span class="material-icons mr-2">people</span>
+                                    Trabajadores
+                                </a>
+                            </li>
+                            <li class="mb-2">
+                                <a href="departamentos.php" class="flex items-center text-white hover:bg-blue-500 p-2 rounded">
+                                    <span class="material-icons mr-2">people</span>
+                                    Departamentos
+                                </a>
+                            </li>
+                        </ul>
+                    </li>
+                    <li class="mb-4">
+                        <a href="sucursales.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
                             <span class="material-icons mr-2">store</span>
                             Sucursales
                         </a>
                     </li>
                     <li class="mb-4">
-                        <a id="usuarios-link" href="usuarios.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
+                        <a href="usuarios.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
                             <span class="material-icons mr-2">people</span>
                             Usuarios
                         </a>
                     </li>
-                    <li class="mb-4">
-                        <a id="salario-link" href="salario.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
-                            <span class="material-icons mr-2">attach_money</span>
-                            Salario
-                        </a>
-                    </li>
+                    <?php endif; ?>
                 </ul>
             </nav>
         </aside>
 
+        <script>
+    $(document).ready(function() {
+        // Manejar el clic en el toggle del dropdown
+        $('.dropdown-toggle').click(function(e) {
+            e.preventDefault(); // Evita la acción por defecto del enlace
+            $(this).next('.dropdown-menu').toggleClass('hidden'); // Alterna la clase 'hidden' en el menú
+        });
+
+        // Cerrar el dropdown si se hace clic fuera de él
+        $(document).click(function(event) {
+            if (!$(event.target).closest('.dropdown-toggle').length) {
+                $('.dropdown-menu').addClass('hidden'); // Oculta el menú
+            }
+        });
+    });
+</script>
+
         <!-- Main Content -->
         <main class="content flex-grow p-8">
-            <h1 class="text-3xl font-bold text-center mb-5">Gastos - Sucursal: <?php echo $sucursal_nombre; ?></h1>
+            <h1 class="text-3xl font-bold text-center mb-5">Gastos - Sucursal: <?php echo htmlspecialchars($sucursal_nombre); ?></h1>
 
-            <!-- FORMULARIO DE FILTRO (Rango de tiempo) -->
+            <!-- Formulario de filtros -->
             <form method="GET" id="filterForm" class="mb-6 space-y-4">
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                        <label for="time_range" class="block text-lg font-semibold mb-2">Seleccionar Rango de Tiempo:</label>
+                        <label for="time_range" class="block text-lg font-semibold mb-2">Rango de Tiempo:</label>
                         <select name="time_range" id="time_range" class="border p-2 rounded-md w-full">
-                            <option value="day" <?php if ($time_range == 'day') echo 'selected'; ?>>Diario</option>
-                            <option value="month" <?php if ($time_range == 'month') echo 'selected'; ?>>Mensual</option>
-                            <option value="year" <?php if ($time_range == 'year') echo 'selected'; ?>>Anual</option>
-                            <option value="custom" <?php if ($time_range == 'custom') echo 'selected'; ?>>Personalizado</option>
+                            <option value="day" <?php echo $time_range == 'day' ? 'selected' : ''; ?>>Diario</option>
+                            <option value="month" <?php echo $time_range == 'month' ? 'selected' : ''; ?>>Mensual</option>
+                            <option value="year" <?php echo $time_range == 'year' ? 'selected' : ''; ?>>Anual</option>
+                            <option value="custom" <?php echo $time_range == 'custom' ? 'selected' : ''; ?>>Personalizado</option>
                         </select>
                     </div>
 
-                    <div id="customDates" class="grid grid-cols-1 sm:grid-cols-2 gap-4" style="display: <?php echo ($time_range == 'custom') ? 'block' : 'none'; ?>;">
-                        <div>
-                            <label for="start_date" class="block text-lg font-semibold mb-2">Fecha Inicio:</label>
-                            <input type="date" name="start_date" value="<?php echo $start_date; ?>" class="border p-2 rounded-md w-full">
-                        </div>
-                        <div>
-                            <label for="end_date" class="block text-lg font-semibold mb-2">Fecha Fin:</label>
-                            <input type="date" name="end_date" value="<?php echo $end_date; ?>" class="border p-2 rounded-md w-full">
-                        </div>
+                    <div>
+                        <label for="gasto_tipo_filtro" class="block text-lg font-semibold mb-2">Tipo de Gasto:</label>
+                        <select name="gasto_tipo_filtro" id="gasto_tipo_filtro" class="border p-2 rounded-md w-full">
+                            <option value="todos" <?php echo $gasto_tipo_filtro == 'todos' ? 'selected' : ''; ?>>Todos</option>
+                            <option value="fijo" <?php echo $gasto_tipo_filtro == 'fijo' ? 'selected' : ''; ?>>Fijo</option>
+                            <option value="variable" <?php echo $gasto_tipo_filtro == 'variable' ? 'selected' : ''; ?>>Variable</option>
+                        </select>
                     </div>
                 </div>
 
-                <button type="submit" class="bg-indigo-600 text-white p-3 rounded-lg font-bold hover:bg-indigo-700 w-auto">Filtrar</button>
+                <div id="custom_dates" class="grid grid-cols-1 sm:grid-cols-2 gap-4 <?php echo $time_range === 'custom' ? '' : 'hidden'; ?>">
+                    <div>
+                        <label for="start_date" class="block text-lg font-semibold mb-2">Fecha Inicio:</label>
+                        <input type="date" name="start_date" id="start_date" value="<?php echo $start_date; ?>" class="border p-2 rounded-md w-full">
+                    </div>
+                    <div>
+                        <label for="end_date" class="block text-lg font-semibold mb-2">Fecha Fin:</label>
+                        <input type="date" name="end_date" id="end_date" value="<?php echo $end_date; ?>" class="border p-2 rounded-md w-full">
+                    </div>
+                </div>
+
+                <div class="text-center">
+                    <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700">
+                        Filtrar
+                    </button>
+                </div>
             </form>
 
-            <!-- FORMULARIO DE REGISTRO DE GASTOS (método POST) -->
-            <div class="max-w-4xl mx-auto bg-white p-10 rounded-lg shadow-md">
-                <form method="POST" class="mb-6">
-                    <div class="mb-4">
-                        <label for="gasto_tipo" class="block text-gray-700 font-bold mb-2">Tipo de Gasto</label>
-                        <select id="gasto_tipo" name="gasto_tipo" required class="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            <option value="fijo">Gasto Fijo</option>
-                            <option value="variable">Gasto Variable</option>
-                        </select>
+            <!-- Gráfico y Tabla -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <!-- Gráfico -->
+                <div class="card p-4">
+                    <h2 class="text-xl font-bold mb-4">Gráfico de Gastos</h2>
+                    <div class="chart-container">
+                        <canvas id="gastosChart"></canvas>
                     </div>
-                    <div class="mb-4" id="description_container">
-                        <label for="tipo" class="block text-gray-700 font-bold mb-2">Descripción del Gasto</label>
-                        <select id="tipo" name="tipo" required class="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            <option value="Internet">Internet</option>
-                            <option value="Electricidad">Electricidad</option>
-                            <option value="Agua">Agua</option>
-                            <option value="Gas">Gas</option>
-                        </select>
-                    </div>
-                    <div class="mb-4">
-                        <label for="monto" class="block text-gray-700 font-bold mb-2">Monto</label>
-                        <input type="text" id="monto" name="monto" required class="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="275.100" oninput="this.value = this.value.replace(/[^0-9,]/g, '');">
-                    </div>
-                    <button type="submit" class="w-full bg-indigo-600 text-white p-3 rounded-lg font-bold hover:bg-indigo-700">Agregar Gasto</button>
-                </form>
-
-                <div class="chart-container mx-auto mb-6">
-                    <canvas id="gastosChart"></canvas>
                 </div>
 
-                <table id="gastosTable" class="display responsive nowrap" style="width:100%">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Descripción</th>
-                            <th>Monto</th>
-                            <th>Fecha y Hora</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($gastos as $gasto): ?>
-                            <tr>
-                                <td><?php echo htmlspecialchars($gasto['id']); ?></td>
-                                <td><?php echo htmlspecialchars($gasto['descripcion']); ?></td>
-                                <td><?php echo "$" . number_format($gasto['monto'], 0, ',', '.'); ?> CLP</td>
-                                <td><?php echo date('d-m-Y H:i:s', strtotime($gasto['fecha'])); ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+<!-- Formulario de Registro -->
+<div class="card p-4">
+    <h2 class="text-xl font-bold mb-4">Registrar Nuevo Gasto</h2>
+    <form method="POST" id="gastoForm" class="space-y-4">
+        <div>
+            <label for="gasto_tipo" class="block text-sm font-medium text-gray-700">Tipo de Gasto</label>
+            <select name="gasto_tipo" id="gasto_tipo" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" onchange="toggleFields('registro')">
+                <option value="fijo">Gasto Fijo</option>
+                <option value="variable">Gasto Variable</option>
+            </select>
+        </div>
+        <div id="gastosFijos" class="hidden">
+            <label for="gastos-fijos" class="block text-sm font-medium text-gray-700">Gastos Fijos</label>
+            <select id="gastos-fijos" name="gastos-fijos" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
+                <option value="luz">Luz</option>
+                <option value="agua">Agua</option>
+                <option value="gas">Gas</option>
+                <option value="internet">Internet</option>
+                <option value="otros">Otros</option>
+            </select>
+        </div>
+        <div id="descripcionContainer" class="hidden">
+            <label for="tipo" class="block text-sm font-medium text-gray-700">Descripción</label>
+            <input type="text" name="tipo" id="tipo" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
+        </div>
+        <div>
+            <label for="monto" class="block text-sm font-medium text-gray-700">Monto</label>
+            <input type="number" name="monto" id="monto" required step="0.01" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
+        </div>
+        <button type="submit" class="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+            Registrar Gasto
+        </button>
+    </form>
+</div>
 
-                <div class="mt-6">
-                    <a href="dashboard.php" class="bg-gray-600 text-white p-3 rounded-lg font-bold hover:bg-gray-700 inline-block text-center">Volver al Dashboard</a>
+                <!-- Tabla de Gastos -->
+                <div class="card p-4">
+                    <h2 class="text-xl font-bold mb-4">Lista de Gastos</h2>
+                    <div class="overflow-x-auto">
+                        <table id="gastosTable" class="display responsive nowrap w-full">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Tipo</th>
+                                    <th>Descripción</th>
+                                    <th>Monto</th>
+                                    <th>Fecha</th>
+                                    <?php if ($rol_id == 2 || $rol_id == 3) : ?>
+                                        <th>Acciones</th>
+                                    <?php endif; ?>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($gastos as $gasto): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($gasto['id']); ?></td>
+                                    <td><?php echo htmlspecialchars($gasto['gasto_tipo']); ?></td>
+                                    <td><?php echo htmlspecialchars($gasto['descripcion']); ?></td>
+                                    <td>$<?php echo number_format($gasto['monto'], 0, ',', '.'); ?></td>
+                                    <td><?php echo date('d/m/Y H:i', strtotime($gasto['fecha'])); ?></td>
+                                    <?php if ($rol_id == 2 || $rol_id == 3) : ?>
+                                        <td class="flex gap-2">
+                                            <button onclick="mostrarFormularioEdicion(<?php echo $gasto['id']; ?>, '<?php echo htmlspecialchars($gasto['descripcion']); ?>', <?php echo $gasto['monto']; ?>, '<?php echo $gasto['gasto_tipo']; ?>')" 
+                                                    class="bg-yellow-500 text-white p-2 rounded hover:bg-yellow-600">
+                                                <i class="material-icons">edit</i>
+                                            </button>
+                                            <button onclick="confirmarEliminacion(<?php echo $gasto['id']; ?>)" 
+                                                    class="bg-red-500 text-white p-2 rounded hover:bg-red-600">
+                                                <i class="material-icons">delete</i>
+                                            </button>
+                                        </td>
+                                    <?php endif; ?>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-        </main>
+        
+<!-- Modal de Edición -->
+<div id="editModal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden">
+    <div class="bg-white rounded-lg p-6 w-96">
+        <h2 class="text-xl font-bold mb-4">Editar Gasto</h2>
+        <form id="editForm" method="POST">
+            <input type="hidden" name="accion" value="editar">
+            <input type="hidden" name="gasto_id" id="modal_gasto_id">
+
+            <div class="mb-4">
+                <label for="modal_gasto_tipo" class="block text-sm font-medium text-gray-700">Tipo de Gasto</label>
+                <select name="gasto_tipo" id="modal_gasto_tipo" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" onchange="toggleFields('modal')">
+                    <option value="fijo">Gasto Fijo</option>
+                    <option value="variable">Gasto Variable</option>
+                </select>
+            </div>
+
+            <div id="gastosFijos" class="hidden">
+                <label for="gastos-fijos" class="block text-sm font-medium text-gray-700">Gastos Fijos</label>
+                <select id="gastos-fijos" name="gastos-fijos" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
+                    <option value="luz">Luz</option>
+                    <option value="agua">Agua</option>
+                    <option value="gas">Gas</option>
+                    <option value="internet">Internet</option>
+                    <option value="otros">Otros</option>
+                </select>
+            </div>
+
+            <div id="descripcionContainer" class="mb-4">
+                <label for="modal_descripcion" class="block text-sm font-medium text-gray-700">Descripción</label>
+                <input type="text" name="tipo" id="modal_descripcion" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
+            </div>
+
+            <div class="mb-4">
+                <label for="modal_monto" class="block text-sm font-medium text-gray-700">Monto</label>
+                <input type="number" name="monto" id="modal_monto" required step="0.01" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
+            </div>
+
+            <div class="flex justify-end">
+                <button type="button" onclick="closeModal()" class="bg-gray-300 text-gray-700 px-4 py-2 rounded-md mr-2">Cancelar</button>
+                <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-md">Guardar</button>
+            </div>
+        </form>
     </div>
+</div>
 
-    <script>
-$(document).ready(function() {
-    // Inicializar DataTables
-    $('#gastosTable').DataTable({
-        responsive: true
-    });
 
-    // Función para crear el gráfico
-    function crearGrafico(labels, data) {
-        var ctxGastos = document.getElementById('gastosChart').getContext('2d');
-        return new Chart(ctxGastos, {
+<script>
+    $(document).ready(function() {
+        // Inicializa la tabla de gastos
+        $('#gastosTable').DataTable({
+            responsive: true,
+            language: {
+                url: 'https://cdn.datatables.net/plug-ins/1.11.5/i18n/Spanish.json' // Carga el idioma español
+            }
+        });
+
+        // Gráfico de gastos
+        const ctx = document.getElementById('gastosChart').getContext('2d');
+        new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: labels,
+                labels: <?php echo json_encode($gastos_labels); ?>,
                 datasets: [{
-                    label: 'Gastos',
-                    data: data,
+                    label: 'Total de Gastos',
+                    data: <?php echo json_encode($gastos_data); ?>,
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgb(75, 192, 192)',
+                    borderWidth: 1,
+                    yAxisID: 'y'
+                }, {
+                    label: 'Cantidad de Gastos',
+                    data: <?php echo json_encode($gastos_cantidad); ?>,
+                    type: 'line',
+                    borderColor: 'rgb(255, 99, 132)',
                     backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                    borderColor: 'rgba(255, 99, 132, 1)',
-                    borderWidth: 1
+                    yAxisID: 'y1'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
                 scales: {
                     x: {
                         type: 'time',
                         time: {
-                            unit: 'month', // Cambia a 'year' si es necesario
-                            tooltipFormat: 'MMM yyyy'
+                            unit: '<?php echo ($time_range === 'day') ? 'day' : (($time_range === 'month') ? 'month' : 'year'); ?>',
+                            tooltipFormat: '<?php echo ($time_range === 'day') ? 'MMM d, yyyy' : (($time_range === 'month') ? 'MMM yyyy' : 'yyyy'); ?>',
+                            displayFormats: {
+                                day: 'MMM d',
+                                month: 'MMM yyyy',
+                                year: 'yyyy'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: '<?php echo ucfirst($time_range); ?>'
                         }
                     },
                     y: {
-                        beginAtZero: true
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return '$' + new Intl.NumberFormat('es-CL').format(value);
+                            }
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        beginAtZero: true,
+                        grid: {
+                            drawOnChartArea: false,
+                        }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                if (context.dataset.label === 'Total de Gastos') {
+                                    return 'Total: $' + new Intl.NumberFormat('es-CL').format(context.raw);
+                                } else {
+                                    return 'Cantidad: ' + context.raw;
+                                }
+                            }
+                        }
                     }
                 }
             }
         });
-    }
 
-    // Crear el gráfico inicial
-    var gastosChart = crearGrafico(<?php echo json_encode($gastos_labels); ?>, <?php echo json_encode($gastos_data); ?>);
-    
-     // Mostrar/ocultar inputs de fecha según el rango de tiempo
-    $('#time_range').change(function() {
-        if ($(this).val() === 'custom') {
-            $('#customDates').show();
-        } else {
-            $('#customDates').hide();
+        // Función para mostrar el formulario de edición
+        window.mostrarFormularioEdicion = function(id, descripcion, monto, gastoTipo) {
+            document.getElementById('modal_gasto_id').value = id;
+            document.getElementById('modal_descripcion').value = descripcion;
+            document.getElementById('modal_monto').value = monto;
+            document.getElementById('modal_gasto_tipo').value = gastoTipo;
+
+            // Mostrar el modal
+            document.getElementById('editModal').classList.remove('hidden');
+            toggleFields('modal');
+        }
+
+        // Función para cerrar el modal
+        window.closeModal = function() {
+            document.getElementById('editModal').classList.add('hidden');
+        }
+        
+        // Función para confirmar y procesar la eliminación
+        window.confirmarEliminacion = function(id) {
+            if (confirm("¿Estás seguro de que deseas eliminar este gasto?")) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.innerHTML = `
+                    <input type="hidden" name="accion" value="eliminar">
+                    <input type="hidden" name="gasto_id" value="${id}">
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+         // Función para mostrar u ocultar campos según el tipo de gasto
+         window.toggleFields = function(context = '') {
+            let gastoTipo, gastosFijos, descripcionContainer, descripcionInput, gastosFijosSelect;
+
+            if (context === 'modal') {
+                gastoTipo = document.getElementById('modal_gasto_tipo').value;
+                gastosFijos = document.getElementById('gastosFijos');
+                descripcionContainer = document.getElementById('descripcionContainer');
+                descripcionInput = document.getElementById('modal_descripcion');
+                gastosFijosSelect = document.getElementById('gastos-fijos');
+            } else if (context === 'registro') {
+                gastoTipo = document.getElementById('gasto_tipo').value;
+                gastosFijos = document.getElementById('gastosFijos');
+                descripcionContainer = document.getElementById('descripcionContainer');
+                descripcionInput = document.getElementById('tipo');
+                gastosFijosSelect = document.getElementById('gastos-fijos');
+            }
+
+            if (gastoTipo === 'fijo') {
+                gastosFijos.classList.remove('hidden');
+                descripcionContainer.classList.add('hidden');
+                descripcionInput.removeAttribute('required');
+                gastosFijosSelect.setAttribute('required', 'required');
+            } else {
+                gastosFijos.classList.add('hidden');
+                descripcionContainer.classList.remove('hidden');
+                descripcionInput.setAttribute('required', 'required');
+                gastosFijosSelect.removeAttribute('required');
+            }
         }
     });
-
-        // Cambiar formulario según tipo de gasto
-        $('#gasto_tipo').change(function() {
-            var tipoGasto = $(this).val();
-            if (tipoGasto === 'variable') {
-                $('#description_container').html(`
-                    <label for="descripcion" class="block text-gray-700 font-bold mb-2">Descripción del Gasto</label>
-                    <input type="text" id="descripcion" name="descripcion" required class="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Descripción del gasto">
-                `);
-            } else {
-                $('#description_container').html(`
-                    <label for="tipo" class="block text-gray-700 font-bold mb-2">Descripción del Gasto</label>
-                    <select id="tipo" name="tipo" required class="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        <option value="Internet">Internet</option>
-                        <option value="Electricidad">Electricidad</option>
-                        <option value="Agua">Agua</option>
-                        <option value="Gas">Gas</option>
-                    </select>
-                `);
-            }
-        });
-
-// Actualizar el gráfico al enviar el formulario
-$('#filterForm').submit(function(event) {
-        event.preventDefault();
-        $.ajax({
-            url: window.location.href,
-            type: 'GET',
-            data: $(this).serialize(),
-            success: function(response) {
-                // Suponiendo que response contiene los nuevos labels y data
-                var newLabels = response.labels; // Asegúrate de que el backend devuelva esto
-                var newData = response.data; // Asegúrate de que el backend devuelva esto
-                
-                // Destruir el gráfico anterior
-                gastosChart.destroy();
-
-                // Crear un nuevo gráfico con los datos actualizados
-                gastosChart = crearGrafico(newLabels, newData);
-            }
-        });
-    });
-});
 </script>
 </body>
 </html>

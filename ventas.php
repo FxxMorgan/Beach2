@@ -23,6 +23,51 @@ $usuario_id = $_SESSION['usuario_id'];
 $sucursal_id = $_SESSION['sucursal_id'];
 $rol_id = $_SESSION['rol_id'];
 
+// Función para obtener permisos de un usuario
+function obtenerPermisos($conn, $usuario_id) {
+    $sql = "SELECT permiso, estado FROM permisos WHERE usuario_id = ?";
+    $stmt = $conn->prepare($sql);
+    if ($stmt) {
+        $stmt->bind_param("i", $usuario_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $permisos = [];
+        while ($row = $result->fetch_assoc()) {
+            $permisos[$row['permiso']] = $row['estado'];
+        }
+        $stmt->close();
+        return $permisos;
+    }
+    return [];
+}
+
+// Obtener permisos del usuario actual
+$permisos = obtenerPermisos($conn, $usuario_id);
+
+// Verificar si el usuario tiene permiso para acceder a ventas
+if (!isset($permisos['ventas']) || $permisos['ventas'] != 1) {
+    echo "<script>alert('No tienes permiso para acceder a esta página.');</script>";
+    header("Location: dashboard.php"); // Redirigir a una página segura
+    exit();
+}
+
+// Determinar el enlace del dashboard según el rol
+$dashboard_link = 'dashboard.php'; // Valor por defecto
+switch ($rol_id) {
+    case 1:
+        $dashboard_link = 'dashboard_owner.php';
+        break;
+    case 2:
+        $dashboard_link = 'dashboard_ti.php';
+        break;
+    case 3:
+        $dashboard_link = 'dashboard_jefe.php';
+        break;
+    case 4:
+        $dashboard_link = 'dashboard_encargado.php';
+        break;
+}
+
 // Procesar formulario de ventas
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tipo_formulario']) && $_POST['tipo_formulario'] === 'venta') {
     $descripcion = $_POST['descripcion'];
@@ -40,28 +85,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tipo_formulario']) &&
     }
 }
 
-// Procesar formulario de retiros
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tipo_formulario']) && $_POST['tipo_formulario'] === 'retiro') {
-    $motivo = $_POST['motivo'];
-    $monto = $_POST['monto'];
-    $fecha = date('Y-m-d H:i:s');
+// Lógica de eliminar venta
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'eliminar') {
+    $venta_id = $_POST['venta_id'];
 
-    $sql = "INSERT INTO retiros (descripcion, monto, sucursal_id, fecha) VALUES (?, ?, ?, ?)";
+    $sql = "DELETE FROM ventas WHERE id = ? AND sucursal_id = ?";
     $stmt = $conn->prepare($sql);
     if ($stmt) {
-        $stmt->bind_param("siis", $motivo, $monto, $sucursal_id, $fecha);
-        $stmt->execute();
-        echo "Retiro registrado con éxito.";
-    } else {
-        echo "Error al preparar la consulta: " . $conn->error;
+        $stmt->bind_param("ii", $venta_id, $sucursal_id);
+        if ($stmt->execute()) {
+            echo "<script>alert('Venta eliminada con éxito.'); window.location.href='ventas.php';</script>";
+        } else {
+            echo "<script>alert('Error al eliminar la venta.');</script>";
+        }
+        $stmt->close();
     }
 }
 
-// Obtener datos de ventas y retiros para mostrar
-$ventas = [];
-$retiros = [];
+// Lógica de editar venta
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'editar') {
+    $venta_id = $_POST['venta_id'];
+    $nueva_descripcion = $_POST['nueva_descripcion'];
+    $nuevo_monto = $_POST['nuevo_monto'];
 
-$sql_ventas = "SELECT fecha, descripcion, monto FROM ventas WHERE sucursal_id = ?";
+    $sql = "UPDATE ventas SET descripcion = ?, monto = ? WHERE id = ? AND sucursal_id = ?";
+    $stmt = $conn->prepare($sql);
+    if ($stmt) {
+        $stmt->bind_param("siii", $nueva_descripcion, $nuevo_monto, $venta_id, $sucursal_id);
+        if ($stmt->execute()) {
+            echo "<script>alert('Venta actualizada con éxito.'); window.location.href='ventas.php';</script>";
+        } else {
+            echo "<script>alert('Error al actualizar la venta.');</script>";
+        }
+        $stmt->close();
+    }
+}
+
+// Obtener datos de ventas para mostrar
+$ventas = [];
+$sql_ventas = "SELECT id, fecha, descripcion, monto FROM ventas WHERE sucursal_id = ?";
 $stmt_ventas = $conn->prepare($sql_ventas);
 if ($stmt_ventas) {
     $stmt_ventas->bind_param("i", $sucursal_id);
@@ -72,28 +134,19 @@ if ($stmt_ventas) {
     }
 }
 
-$sql_retiros = "SELECT fecha, descripcion AS motivo, monto FROM retiros WHERE sucursal_id = ?";
-$stmt_retiros = $conn->prepare($sql_retiros);
-if ($stmt_retiros) {
-    $stmt_retiros->bind_param("i", $sucursal_id);
-    $stmt_retiros->execute();
-    $result_retiros = $stmt_retiros->get_result();
-    while ($row = $result_retiros->fetch_assoc()) {
-        $retiros[] = $row;
-    }
-}
-
 // Cerrar conexión
 $conn->close();
 ?>
 
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ventas y Retiros</title>
+    <title>Ventas</title>
+    <!-- Favicon -->
+    <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.11.5/css/jquery.dataTables.min.css">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
@@ -101,7 +154,6 @@ $conn->close();
     <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
     <style>
         body {
@@ -127,7 +179,7 @@ $conn->close();
             <nav>
                 <ul>
                     <li class="mb-4">
-                        <a id="dashboard-link" href="index.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
+                        <a id="dashboard-link" href="<?php echo $dashboard_link; ?>" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
                             <span class="material-icons mr-2">dashboard</span>
                             Dashboard
                         </a>
@@ -144,6 +196,7 @@ $conn->close();
                             Ventas
                         </a>
                     </li>
+                    <?php if ($rol_id != 4): ?>
                     <li class="mb-4">
                         <a id="sucursales-link" href="sucursales.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
                             <span class="material-icons mr-2">store</span>
@@ -157,22 +210,23 @@ $conn->close();
                         </a>
                     </li>
                     <li class="mb-4">
-                        <a id="salario-link" href="salario.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
+                        <a id="salario-link" href="sueldos.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
                             <span class="material-icons mr-2">attach_money</span>
-                            Salario
+                            Sueldos
                         </a>
                     </li>
+                    <?php endif; ?>
                 </ul>
             </nav>
         </aside>
 
         <!-- Main Content -->
         <main class="flex-1 p-8">
-            <h1 class="text-3xl font-bold mb-8">Ventas y Retiros</h1>
+            <h1 class="text-3xl font-bold mb-8">Ventas</h1>
 
             <!-- Formulario para Ingresar Ventas Diarias -->
             <div class="bg-white p-6 rounded shadow mb-8">
-                <h2 class="text-xl font-semibold mb-4">Registrar Venta</h2>
+                <h2 class="text-xl font-semibold mb-4">Registrar Venta Diaria</h2>
                 <form action="ventas.php" method="post">
                     <input type="hidden" name="tipo_formulario" value="venta">
                     <label for="descripcion" class="block mb-2">Descripción:</label>
@@ -185,77 +239,45 @@ $conn->close();
                 </form>
             </div>
 
-            <!-- Formulario para Registrar Retiros de Caja -->
-            <div class="bg-white p-6 rounded shadow mb-8">
-                <h2 class="text-xl font-semibold mb-4">Registrar Retiro</h2>
-                <form action="ventas.php" method="post">
-                    <input type="hidden" name="tipo_formulario" value="retiro">
-                    <label for="motivo" class="block mb-2">Motivo del Retiro:</label>
-                    <select id="motivo" name="motivo" class="w-full mb-4 p-2 border" required>
-                        <option value="Pago de Proveedores">Pago de Proveedores</option>
-                        <option value="Mantenimiento">Mantenimiento</option>
-                        <option value="Otros">Otros</option>
-                    </select>
-
-                    <label for="monto" class="block mb-2">Monto (CLP):</label>
-                    <input type="number" id="monto" name="monto" class="w-full mb-4 p-2 border" required>
-
-                    <button type="submit" class="bg-blue-500 text-white p-2 rounded">Registrar Retiro</button>
-                </form>
-            </div>
-
             <!-- Gráfico de Ventas -->
             <div class="bg-white p-6 rounded shadow mb-8">
                 <h2 class="text-xl font-semibold mb-4">Gráfico de Ventas</h2>
                 <canvas id="ventasChart"></canvas>
             </div>
 
-            <!-- Gráfico de Retiros -->
-            <div class="bg-white p-6 rounded shadow mb-8">
-                <h2 class="text-xl font-semibold mb-4">Gráfico de Retiros</h2>
-                <canvas id="retirosChart"></canvas>
-            </div>
 
             <!-- Mostrar Ventas Existentes -->
             <div class="bg-white p-6 rounded shadow mb-8">
                 <h2 class="text-xl font-semibold mb-4">Historial de Ventas</h2>
-                <table id="tablaVentas" class="w-full">
+                <table id="ventasTable" class="display w-full">
                     <thead>
                         <tr>
-                            <th class="text-left">Fecha y Hora</th>
-                            <th class="text-left">Descripción</th>
-                            <th class="text-left">Monto (CLP)</th>
+                            <th>Fecha</th>
+                            <th>Descripción</th>
+                            <th>Monto</th>
+                            <?php if ($rol_id == 2 || $rol_id == 3) : ?>
+                                <th>Acciones</th>
+                            <?php endif; ?>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($ventas as $venta): ?>
+                        <?php foreach ($ventas as $venta) : ?>
                             <tr>
-                                <td><?php echo date('d-m-Y H:i:s', strtotime($venta['fecha'])); ?></td>
-                                <td><?php echo htmlspecialchars($venta['descripcion']); ?></td>
-                                <td><?php echo "$" . number_format($venta['monto'], 0, ',', '.'); ?> CLP</td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Mostrar Retiros Existentes -->
-            <div class="bg-white p-6 rounded shadow mb-8">
-                <h2 class="text-xl font-semibold mb-4">Historial de Retiros</h2>
-                <table id="tablaRetiros" class="w-full">
-                    <thead>
-                        <tr>
-                            <th class="text-left">Fecha y Hora</th>
-                            <th class="text-left">Motivo</th>
-                            <th class="text-left">Monto (CLP)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($retiros as $retiro): ?>
-                            <tr>
-                                <td><?php echo date('d-m-Y H:i:s', strtotime($retiro['fecha'])); ?></td>
-                                <td><?php echo htmlspecialchars($retiro['motivo']); ?></td>
-                                <td><?php echo "$" . number_format($retiro['monto'], 0, ',', '.'); ?> CLP</td>
+                                <td><?php echo $venta['fecha']; ?></td>
+                                <td><?php echo $venta['descripcion']; ?></td>
+                                <td><?php echo number_format($venta['monto'], 0, ',', '.'); ?></td>
+                                <?php if ($rol_id == 2 || $rol_id == 3) : ?>
+                                    <td class="flex gap-2">
+                                        <button onclick="mostrarFormularioEdicion(<?php echo $venta['id']; ?>, '<?php echo htmlspecialchars($venta['descripcion']); ?>', <?php echo $venta['monto']; ?>)" 
+                                                class="bg-yellow-500 text-white p-2 rounded hover:bg-yellow-600">
+                                            <i class="material-icons">edit</i>
+                                        </button>
+                                        <button onclick="confirmarEliminacion(<?php echo $venta['id']; ?>)" 
+                                                class="bg-red-500 text-white p-2 rounded hover:bg-red-600">
+                                            <i class="material-icons">delete</i>
+                                        </button>
+                                    </td>
+                                <?php endif; ?>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -266,75 +288,91 @@ $conn->close();
 
     <script>
         $(document).ready(function() {
-            $('#tablaVentas').DataTable();
-            $('#tablaRetiros').DataTable();
-        });
+            $('#ventasTable').DataTable();
 
-        // Datos para el gráfico de ventas
-        const ventasLabels = <?php echo json_encode(array_column($ventas, 'fecha')); ?>;
-        const ventasData = <?php echo json_encode(array_column($ventas, 'monto')); ?>;
-
-        // Configuración de Chart.js para Ventas
-        const ctxVentas = document.getElementById('ventasChart').getContext('2d');
-        const ventasChart = new Chart(ctxVentas, {
-            type: 'line',
-            data: {
-                labels: ventasLabels,
+            // Gráfico de Ventas
+            const ctx = document.getElementById('ventasChart').getContext('2d');
+            const ventasData = {
+                labels: [<?php foreach ($ventas as $venta) { echo "'" . date('Y-m-d', strtotime($venta['fecha'])) . "',"; } ?>],
                 datasets: [{
-                    label: 'Ventas (CLP)',
-                    data: ventasData,
-                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 1
+                    label: 'Ventas Diarias',
+                    data: [<?php foreach ($ventas as $venta) { echo $venta['monto'] . ","; } ?>],
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1,
+                    tension: 0.3 // Suaviza las líneas
                 }]
-            },
-            options: {
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: {
-                            unit: 'day'
+            };
+
+            const ventasChart = new Chart(ctx, {
+                type: 'line',
+                data: ventasData,
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'day',
+                                tooltipFormat: 'dd-MM-yyyy'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Monto (CLP)'
+                            }
                         }
                     },
-                    y: {
-                        beginAtZero: true
-                    }
-                }
-            }
-        });
-
-        // Datos para el gráfico de retiros
-        const retirosLabels = <?php echo json_encode(array_column($retiros, 'fecha')); ?>;
-        const retirosData = <?php echo json_encode(array_column($retiros, 'monto')); ?>;
-
-        // Configuración de Chart.js para Retiros
-        const ctxRetiros = document.getElementById('retirosChart').getContext('2d');
-        const retirosChart = new Chart(ctxRetiros, {
-            type: 'line',
-            data: {
-                labels: retirosLabels,
-                datasets: [{
-                    label: 'Retiros (CLP)',
-                    data: retirosData,
-                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                    borderColor: 'rgba(255, 99, 132, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: {
-                            unit: 'day'
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
                         }
-                    },
-                    y: {
-                        beginAtZero: true
                     }
                 }
-            }
+            });
         });
+
+        // Función para mostrar el formulario de edición mediante prompts
+        function mostrarFormularioEdicion(id, descripcion, monto) {
+            const nuevaDescripcion = prompt("Nueva descripción:", descripcion);
+            if (nuevaDescripcion === null) return;
+
+            const nuevoMonto = prompt("Nuevo monto:", monto);
+            if (nuevoMonto === null) return;
+
+            if (nuevaDescripcion.trim() === "" || isNaN(nuevoMonto) || nuevoMonto <= 0) {
+                alert("Por favor, ingrese datos válidos");
+                return;
+            }
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.innerHTML = `
+                <input type="hidden" name="accion" value="editar">
+                <input type="hidden" name="venta_id" value="${id}">
+                <input type="hidden" name="nueva_descripcion" value="${nuevaDescripcion}">
+                <input type="hidden" name="nuevo_monto" value="${nuevoMonto}">
+            `;
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        // Función para confirmar y procesar la eliminación
+        function confirmarEliminacion(id) {
+            if (confirm("¿Estás seguro de que deseas eliminar esta venta?")) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.innerHTML = `
+                    <input type="hidden" name="accion" value="eliminar">
+                    <input type="hidden" name="venta_id" value="${id}">
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
     </script>
 </body>
 

@@ -58,6 +58,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <!-- Material Icons -->
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
+        <!-- Favicon -->
+    <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
+
     <style>
         body {
             font-family: 'Roboto', sans-serif;
@@ -92,13 +95,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <nav>
                 <ul>
                     <li class="mb-4">
-                        <a href="index.html" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
+                        <a href="dashboard.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
                             <span class="material-icons mr-2">dashboard</span>
                             Dashboard
                         </a>
                     </li>
                     <li class="mb-4">
-                        <a href="gastos.html" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
+                        <a href="gastos.php" class="flex items-center text-white hover:bg-blue-600 p-2 rounded">
                             <span class="material-icons mr-2">monetization_on</span>
                             Gastos
                         </a>

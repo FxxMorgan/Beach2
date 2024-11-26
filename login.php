@@ -47,13 +47,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     $redirect_url = 'dashboard_ti.php';
                     break;
                 case 3:
-                    $redirect_url = 'dashboard_jefe_local.php';
+                    $redirect_url = 'dashboard_jefe.php';
                     break;
                 case 4:
                     $redirect_url = 'dashboard_encargado.php';
                     break;
                 default:
-                    $redirect_url = 'index.php';
+                    $redirect_url = 'dashboard.php';
                     break;
             }
 
@@ -91,8 +91,8 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
 
-    <!-- Google Fonts: Material Icons -->
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 
     <!-- Tailwind CSS -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
@@ -103,6 +103,9 @@ $conn->close();
     <!-- Particle.js -->
     <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
 
+        <!-- Favicon -->
+    <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
+
     <style>
         body {
             height: 100vh;
@@ -110,41 +113,42 @@ $conn->close();
             justify-content: center;
             align-items: center;
             margin: 0;
-            background-color: #f8f9fa;
+            font-family: 'Roboto', sans-serif;
+            background-color: #f0f4f8;
         }
 
         #particles-js {
             position: absolute;
             width: 100%;
             height: 100%;
-            background-color: black;
+            background-color: #282c34;
             z-index: -1;
         }
 
         .login-container {
             z-index: 1;
             position: relative;
-            max-width: 800px;
-            margin: 20px;
-            padding: 50px;
-            background-color: orangered;
-            color: black;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            padding: 40px;
+            background-color: #ffffff;
+            color: #333;
+            border-radius: 10px;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
         }
 
         .login-button {
-            background-color: #FFA500;
+            background-color: #007bff;
             color: white;
             border: none;
             padding: 10px 20px;
             border-radius: 5px;
             cursor: pointer;
             transition: background-color 0.3s;
+            width: 100%;
         }
 
         .login-button:hover {
-            background-color: #ff8c00;
+            background-color: #0056b3;
         }
     </style>
 </head>
@@ -153,7 +157,7 @@ $conn->close();
     <div id="particles-js"></div>
 
     <!-- Login Form -->
-    <div class="login-container mt-24">
+    <div class="login-container">
         <h2 class="text-2xl font-bold mb-4 text-center">Iniciar Sesión</h2>
         <form action="" method="POST">
             <div class="mb-4">
@@ -164,7 +168,7 @@ $conn->close();
                 <label for="password" class="block text-sm font-medium text-gray-700">Contraseña</label>
                 <input type="password" name="password" id="password" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
             </div>
-            <button type="submit" class="w-full py-2 px-4 rounded-md login-button hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Iniciar Sesión</button>
+            <button type="submit" class="login-button">Iniciar Sesión</button>
         </form>
     </div>
 
@@ -183,7 +187,7 @@ $conn->close();
                     }
                 },
                 "color": {
-                    "value": "#3b82f6"
+                    "value": "#00bfff"
                 },
                 "shape": {
                     "type": "circle",
@@ -218,7 +222,7 @@ $conn->close();
                 "line_linked": {
                     "enable": true,
                     "distance": 150,
-                    "color": "#3b82f6",
+                    "color": "#00bfff",
                     "opacity": 0.4,
                     "width": 1
                 },
